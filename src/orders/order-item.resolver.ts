@@ -2,23 +2,16 @@ import { Resolver, ResolveField, Parent } from '@nestjs/graphql';
 import { OrderItemType } from './graphql/order-item.type';
 import { ProductType } from '../products/graphql/product.type';
 import { OrderItemEntity } from './order-item-entity';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { ProductEntity } from '../products/product.entity';
+import { ProductLoader } from 'src/products/product.loader';
 
 @Resolver(() => OrderItemType)
 export class OrderItemResolver {
-  constructor(
-    @InjectRepository(ProductEntity)
-    private readonly productRepository: Repository<ProductEntity>,
-  ) {}
+  constructor(private readonly productLoader: ProductLoader) {}
 
   @ResolveField(() => ProductType)
   async product(
     @Parent() orderItem: OrderItemEntity,
-  ): Promise<ProductEntity | null> {
-    return this.productRepository.findOne({
-      where: { id: orderItem.productId },
-    });
+  ): Promise<ProductType | null> {
+    return this.productLoader.batchProducts.load(orderItem.productId);
   }
 }

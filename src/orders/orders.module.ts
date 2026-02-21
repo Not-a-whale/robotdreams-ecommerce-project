@@ -8,6 +8,7 @@ import { OrderEntity } from './order.entity';
 import { UserEntity } from 'src/users/user.entity';
 import { OrdersResolver } from './orders-resolver';
 import { OrderItemResolver } from './order-item.resolver';
+import { ProductsModule } from 'src/products/products.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { OrderItemResolver } from './order-item.resolver';
       ProductEntity,
       UserEntity,
     ]),
+    ProductsModule,
   ],
   controllers: [OrdersController],
   providers: [OrdersService, OrdersResolver, OrderItemResolver],
