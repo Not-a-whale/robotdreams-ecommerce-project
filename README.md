@@ -187,3 +187,233 @@ Execution Time: 0.140 ms
 - сортування (`created_at DESC`)
 
 PostgreSQL може одразу отримати відсортований результат без додаткового сортування, що значно зменшує час виконання.
+
+# 📦 Homework 07 — GraphQL для Orders + DataLoader
+
+## 🎯 Мета
+
+Реалізовано GraphQL API для Orders з:
+
+- GraphQL schema як контракт (types, inputs, enums, nullability)
+- Резолвери які перевикористовують існуючі сервіси
+- DataLoader для уникнення N+1 проблеми
+
+## 🏗️ Архітектура
+
+### Вибір підходу: Code-First
+
+Обрано **code-first** підхід через декоратори NestJS, тому що:
+
+- Типи TypeScript автоматично синхронізуються з GraphQL schema
+- Менше дублювання коду
+- Краща підтримка IDE та autocomplete
+- Легше рефакторити
+
+### Структура файлів
+
+```
+src/
+├── orders/
+│   ├── graphql/
+│   │   ├── order.type.ts              # Order GraphQL type
+│   │   ├── order-item.type.ts         # OrderItem GraphQL type
+│   │   ├── order-status.enum.ts       # OrderStatus enum
+│   │   ├── orders-filter.input.ts     # Filter input
+│   │   └── orders-pagination.input.ts # Pagination input
+│   ├── orders.resolver.ts             # Orders Query resolver
+│   ├── order-item.resolver.ts         # OrderItem field resolver
+│   └── orders.service.ts              # Business logic
+└── products/
+    ├── graphql/
+    │   └── product.type.ts            # Product GraphQL type
+    └── product.loader.ts              # DataLoader for products
+```
+
+## 📋 GraphQL Schema
+
+### Types
+
+**OrderStatus Enum:**
+
+```graphql
+enum OrderStatus {
+  CREATED
+  PAID
+  CANCELLED
+}
+```
+
+**Product Type:**
+
+```graphql
+type Product {
+  id: ID!
+  name: String!
+  price: Int!
+  stock: Int!
+  externalId: Int
+  shortDescription: String
+  description: String
+  sizes: [String!]
+  colors: [String!]
+  images: JSONObject
+  categorySlug: String
+}
+```
+
+**OrderItem Type:**
+
+```graphql
+type OrderItem {
+  id: ID!
+  productId: ID!
+  qty: Int!
+  priceAtPurchase: Int!
+  product: Product!
+}
+```
+
+**Order Type:**
+
+```graphql
+type Order {
+  id: ID!
+  userId: ID!
+  status: OrderStatus!
+  totalPrice: Int!
+  createdAt: DateTime!
+  items: [OrderItem!]!
+}
+```
+
+### Input Types
+
+**OrdersFilterInput:**
+
+```graphql
+input OrdersFilterInput {
+  status: OrderStatus
+  dateFrom: DateTime
+  dateTo: DateTime
+  userId: String
+}
+```
+
+**OrdersPaginationInput:**
+
+```graphql
+input OrdersPaginationInput {
+  limit: Int! = 20 # default 20, max 100
+  offset: Int! = 0
+}
+```
+
+### Query
+
+```graphql
+type Query {
+  orders(
+    filter: OrdersFilterInput
+    pagination: OrdersPaginationInput
+  ): [Order!]!
+}
+```
+
+## 🔍 Приклад запиту
+
+```graphql
+query GetOrders {
+  orders(filter: { status: CREATED }, pagination: { limit: 10, offset: 0 }) {
+    id
+    status
+    totalPrice
+    createdAt
+    items {
+      id
+      qty
+      priceAtPurchase
+      product {
+        id
+        name
+        price
+        stock
+      }
+    }
+  }
+}
+```
+
+## ⚡ DataLoader — Вирішення N+1
+
+### Проблема N+1 (ДО DataLoader)
+
+При запиті:
+
+```graphql
+query {
+  orders(pagination: { limit: 5 }) {
+    items {
+      product {
+        id
+        name
+      }
+    }
+  }
+}
+```
+
+**SQL запити:**
+
+```sql
+-- 1 запит для orders + items
+SELECT * FROM orders ORDER BY created_at DESC LIMIT 5
+SELECT * FROM order_items WHERE order_id IN (...)
+
+-- N окремих запитів для products (N+1 проблема!)
+SELECT * FROM products WHERE id = $1  -- product 1
+SELECT * FROM products WHERE id = $1  -- product 2
+SELECT * FROM products WHERE id = $1  -- product 3
+...
+```
+
+**Результат:** 1 + N запитів до БД
+
+### Рішення: DataLoader (ПІСЛЯ)
+
+**SQL запити:**
+
+```sql
+-- 1 запит для orders + items
+SELECT * FROM orders ORDER BY created_at DESC LIMIT 5
+SELECT * FROM order_items WHERE order_id IN (...)
+
+-- 1 batched запит для ВСІХ products
+SELECT * FROM products WHERE id IN ($1, $2, $3, ...)
+```
+
+**Результат:** 2 запити до БД (незалежно від кількості items!)
+
+### Реалізація DataLoader
+
+```typescript
+@Injectable({ scope: Scope.REQUEST })
+export class ProductLoader {
+  constructor(
+    @InjectRepository(ProductEntity)
+    private readonly productRepository: Repository,
+  ) {}
+
+  public readonly batchProducts = new DataLoader(
+    async (productIds: readonly string[]) => {
+      // Batching: завантажуємо ВСІ products одним запитом
+      const products = await this.productRepository.find({
+        where: { id: In([...productIds]) },
+      });
+
+      // Зіставлення: повертаємо products у правильному порядку
+      const productMap = new Map(products.map((p) => [p.id, p]));
+      return productIds.map((id) => productMap.get(id) || null);
+    },
+  );
+}
+```

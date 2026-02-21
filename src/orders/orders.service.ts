@@ -9,6 +9,8 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { OrderEntity } from './order.entity';
 import { OrderItemEntity } from './order-item-entity';
 import { ProductEntity } from '../products/product.entity';
+import { OrdersFilterInput } from './graphql/orders-filter.input';
+import { OrdersPaginationInput } from './graphql/orders-pagination.input';
 
 type PgError = {
   code?: string;
@@ -39,6 +41,42 @@ function isPgUniqueViolation(
 @Injectable()
 export class OrdersService {
   constructor(private readonly dataSource: DataSource) {}
+
+  async findAll(
+    filter?: OrdersFilterInput,
+    pagination?: OrdersPaginationInput,
+  ): Promise<OrderEntity[]> {
+    const qb = this.dataSource
+      .getRepository(OrderEntity)
+      .createQueryBuilder('order')
+      .leftJoinAndSelect('order.items', 'items');
+
+    if (filter?.status) {
+      qb.andWhere('order.status = :status', { status: filter.status });
+    }
+
+    if (filter?.userId) {
+      qb.andWhere('order.userId = :userId', { userId: filter.userId });
+    }
+
+    if (filter?.dateFrom) {
+      qb.andWhere('order.createdAt >= :dateFrom', {
+        dateFrom: filter.dateFrom,
+      });
+    }
+
+    if (filter?.dateTo) {
+      qb.andWhere('order.createdAt <= :dateTo', { dateTo: filter.dateTo });
+    }
+
+    qb.orderBy('order.createdAt', 'DESC');
+
+    if (pagination) {
+      qb.limit(pagination.limit).offset(pagination.offset);
+    }
+
+    return qb.getMany();
+  }
 
   async createOrder(dto: CreateOrderDto, idempotencyKey: string) {
     // ловим 500-ті
