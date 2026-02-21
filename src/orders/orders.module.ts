@@ -6,6 +6,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { OrderItemEntity } from './order-item-entity';
 import { OrderEntity } from './order.entity';
 import { UserEntity } from 'src/users/user.entity';
+import { OrdersResolver } from './orders-resolver';
+import { OrderItemResolver } from './order-item.resolver';
 
 @Module({
   imports: [
@@ -17,6 +19,6 @@ import { UserEntity } from 'src/users/user.entity';
     ]),
   ],
   controllers: [OrdersController],
-  providers: [OrdersService],
+  providers: [OrdersService, OrdersResolver, OrderItemResolver],
 })
 export class OrdersModule {}
